@@ -2,6 +2,8 @@ import React from 'react';
 import Head from "next/head";
 import './App.css';
 
+import { VideoList } from "./components/VideoList";
+
 const TITLE = "動画ダウンロード太郎";
 
 function HomePage() {
@@ -19,6 +21,8 @@ function HomePage() {
 			<br/>
 			<input type="submit" value="ダウンロード" />
 		</form>
+
+		<VideoList />
 	</>
 	);
 }
