@@ -16,6 +16,12 @@ mod download;
 
 pub struct Data {
     tpool: ThreadPool,
+    status: Status,
+}
+
+#[derive(Serialize)]
+pub struct Status {
+    hoge: u32,
 }
 
 #[actix_web::main]
@@ -31,6 +37,7 @@ async fn main() -> std::io::Result<()> {
 
     let data = Data {
         tpool: ThreadPool::new()?,
+        status: Status { hoge: 0 },
     };
     let data = Arc::new(Mutex::new(data));
 
@@ -48,8 +55,12 @@ async fn main() -> std::io::Result<()> {
 
 fn app_config(cfg: &mut web::ServiceConfig) {
     cfg.service(
+        web::scope("/api")
+            .route("/status", web::get().to(api::status))
+            .route("/download", web::post().to(api::download)),
+    )
+    .service(
         web::scope("")
-            .service(web::resource("/api/download").route(web::post().to(api::download)))
             .service(
                 actix_files::Files::new("/", "ui/build")
                     .index_file("index.html")

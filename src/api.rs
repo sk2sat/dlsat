@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use actix_web::{get, http, middleware, web, App, HttpResponse, HttpServer, Responder, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use youtube_dl::{YoutubeDl, YoutubeDlOutput};
 
 use crate::download::Target;
@@ -13,6 +13,11 @@ pub struct Params {
 
 pub async fn index() -> Result<HttpResponse> {
     Ok(redirect_to("/"))
+}
+
+pub async fn status(data: web::Data<Arc<Mutex<crate::Data>>>) -> Result<HttpResponse> {
+    let status = &data.lock().unwrap().status;
+    Ok(HttpResponse::Ok().json(status))
 }
 
 pub async fn download(
