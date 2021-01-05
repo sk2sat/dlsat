@@ -11,6 +11,10 @@ pub struct Params {
     param: String,
 }
 
+pub async fn index() -> Result<HttpResponse> {
+    Ok(redirect_to("/"))
+}
+
 pub async fn download(
     params: web::Form<Params>,
     data: web::Data<Arc<Mutex<crate::Data>>>,

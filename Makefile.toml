@@ -1,0 +1,11 @@
+[tasks.build]
+command = "cargo"
+args = ["build"]
+dependencies = [
+	{ name = "build", path = "ui" },
+]
+
+[tasks.run]
+command = "cargo"
+args = ["run"]
+dependencies = ["build"]
