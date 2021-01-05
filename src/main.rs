@@ -1,14 +1,13 @@
 use std::env;
 use std::sync::{Arc, Mutex};
 
-use futures::executor::{block_on, ThreadPool};
+use futures::executor::ThreadPool;
 
 use env_logger;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use actix_web::http::StatusCode;
-use actix_web::{get, middleware, web, App, HttpResponse, HttpServer, Responder, Result};
+use actix_web::{middleware, web, App, HttpServer};
 
 mod api;
 mod config;
@@ -26,7 +25,7 @@ pub struct Status {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    env::set_var("RUST_LOG", "info");
+    env::set_var("RUST_LOG", "dlsat=info");
     env_logger::init();
     log::info!("starting...");
 
