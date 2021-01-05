@@ -49,6 +49,7 @@ async fn main() -> std::io::Result<()> {
 fn app_config(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("")
+            .service(actix_files::Files::new("/static", ".").show_files_listing())
             .service(web::resource("/").route(web::get().to(api::index)))
             .service(web::resource("/download").route(web::post().to(api::download)))
             .default_service(web::route().to(api::index)),

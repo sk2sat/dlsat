@@ -4,17 +4,11 @@ use actix_web::{get, http, middleware, web, App, HttpResponse, HttpServer, Respo
 use serde::Deserialize;
 use youtube_dl::{YoutubeDl, YoutubeDlOutput};
 
-use crate::download::Host;
+use crate::download::Target;
 
 #[derive(Debug, Deserialize)]
 pub struct Params {
     param: String,
-}
-
-pub async fn index() -> Result<HttpResponse> {
-    Ok(HttpResponse::Ok()
-        .content_type("text/html; charset=utf-8")
-        .body(include_str!("../static/index.html")))
 }
 
 pub async fn download(
@@ -23,8 +17,8 @@ pub async fn download(
 ) -> Result<HttpResponse> {
     log::info!("param: {}", &params.param);
 
-    let host = Host::new(&params.param);
-    log::info!("host: {:?}", host);
+    let target = Target::new(&params.param);
+    log::info!("target: {:?}", target);
 
     Ok(redirect_to("/"))
 }
