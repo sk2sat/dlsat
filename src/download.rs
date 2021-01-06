@@ -1,6 +1,6 @@
 use futures::executor::ThreadPool;
 use inline_python::python;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use url::{Host::Domain, Url};
 use youtube_dl::{YoutubeDl, YoutubeDlOutput};
 
@@ -15,7 +15,8 @@ pub struct Target {
     s: String,
     host: Host,
     info: Option<YoutubeDlOutput>,
-    progress: f32,
+    progress: Arc<RwLock<String>>,
+    py_ctx: Option<Arc<inline_python::Context>>,
 }
 
 impl Host {
@@ -46,7 +47,8 @@ impl Target {
             s: s.to_string(),
             host,
             info: None,
-            progress: 0.0,
+            progress: Arc::new(RwLock::new("".to_string())),
+            py_ctx: None,
         });
     }
 
@@ -71,7 +73,29 @@ impl Target {
                 YoutubeDlOutput::SingleVideo(sv) => {
                     log::info!("downloading single video: {}", sv.title);
                     let url = &self.s;
-                    do_youtube_dl(url);
+                    self.py_ctx = Some(Arc::new(inline_python::Context::new()));
+                    let py_ctx = self.py_ctx.as_ref().unwrap();
+
+                    let ctx = py_ctx.clone();
+                    let pool = ThreadPool::new().unwrap();
+                    let progress = self.progress.read().unwrap().clone();
+                    pool.spawn_ok(async move {
+                        loop {
+                            //ctx.run(python!({ print(status) }));
+                            let status: YtStatus = ctx.clone().into();
+                            log::info!(
+                                "{:?}, {:?}/{:?} tmp: {:?}, out={}",
+                                status.progress(),
+                                status.fragment_index,
+                                status.fragment_count,
+                                status.tmpfilename,
+                                status.filename
+                            );
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                        }
+                    });
+
+                    do_youtube_dl(url, py_ctx.clone());
                 }
                 YoutubeDlOutput::Playlist(pl) => {
                     log::info!("downloading playlist...");
@@ -86,65 +110,45 @@ use inline_python::pyo3::{
     FromPyObject, Py, PyClass, PyObject, PyResult, Python,
 };
 
+// https://github.com/ytdl-org/youtube-dl/blob/9c1e164e0cd77331ea4f0b474b32fd06f84bad71/youtube_dl/YoutubeDL.py#L234
 //use pyo3::prelude::*;
-#[pyclass(dict)]
-//#[derive(Clone)]
+//#[pyclass(dict)]
+#[derive(Debug)]
 struct YtStatus {
     status: String,
-    downloaded_bytes: usize,
-    fragment_index: usize,
-    fragment_count: usize,
-    filename: String,
-    tmpfilename: String,
-    elapsed: f64,
-    total_bytes_estimate: f64,
-    eta: usize,
-    speed: f64,
-    _eta_str: String,
-    _percent_str: String,
-    _speed_str: String,
-    _total_bytes_estimate_str: String,
+    pub downloaded_bytes: Option<usize>,
+    pub fragment_index: Option<usize>,
+    pub fragment_count: Option<usize>,
+    pub filename: String,
+    pub tmpfilename: Option<String>,
+    pub elapsed: f64,
+    pub total_bytes: Option<f64>,
+    pub eta: Option<usize>,
+    pub speed: Option<f64>,
 }
 
-//use pyo3::prelude::*;
-//use pyo3::wrap_pyfunction;
-#[pyfunction]
-fn phook_rs(py: pyo3::Python, d: &PyDict) {
-    println!("hook");
-    //let d: &YtStatus = d.into();
+#[derive(Debug)]
+enum YtStatusProgress {
+    Preparing,
+    Downloading(f64),
+    Finished,
+    Error,
 }
 
-fn do_youtube_dl(url: &str) {
-    //let mut percent = String::new();
-    let ctx: inline_python::Context = python! {
-        status = {}
-        downloaded = 0
-    };
-    let ctx = Arc::new(ctx);
-    //let percent0 = Arc::new(percent);
-
-    {
-        // progress monitor thread
-        let pool = ThreadPool::new().unwrap();
-        let ctx = ctx.clone();
-        //let p = percent0.clone();
-        pool.spawn_ok(async move {
-            loop {
-                //log::info!("{}", p);
-                //log::info!("{}", ctx.get::<i32>("downloaded"));
-                //log::info!("{}", ctx.get::<String>("percent"));
-                //let gil = Python::acquire_gil();
-                //let py = gil.python();
-                //let status: PyObject = ctx.get::<PyObject>("status").extract(py).unwrap();
-                //let status: PyDict = status.extract(py).unwrap();
-                //let s = ctx.get::<YtStatus>("status").into();
-                //log::info!("{}", s);
-                std::thread::sleep(std::time::Duration::from_millis(50));
-            }
-        });
-    }
-
-    ctx.add_wrapped(wrap_pyfunction!(phook_rs));
+fn do_youtube_dl(url: &str, ctx: Arc<inline_python::Context>) {
+    ctx.run(python! {
+        status = "preparing"
+        downloaded_bytes = 0
+        fragment_index = 0
+        fragment_count = 0
+        filename = ""
+        tmpfilename = ""
+        elapsed = 0.0
+        total_bytes = 0.0
+        eta = 0
+        speed = 0.0
+    });
+    //let ctx = Arc::new(ctx);
 
     ctx.run(python! {
         import youtube_dl
@@ -152,15 +156,99 @@ fn do_youtube_dl(url: &str) {
 
         def phook(d):
             global status
-            global downloaded
-            status = d
-            downloaded = d["downloaded_bytes"]
-            //'percent = d["_percent_str"]
-            #print(time.time())
+            global downloaded_bytes
+            global fragment_index
+            global fragment_count
+            global filename
+            global tmpfilename
+            global elapsed
+            global total_bytes
+            global eta
+            global speed
+            status = d["status"]
+            filename = d["filename"]
+            elapsed = d["elapsed"]
+            if status == "downloading":
+                downloaded_bytes = d["downloaded_bytes"]
+                fragment_index = d["fragment_index"]
+                fragment_count = d["fragment_count"]
+                tmpfilename = d["tmpfilename"]
+                total_bytes = d["total_bytes_estimate"]
+                eta = d["eta"]
+                speed = d["speed"]
+                if speed is None:
+                    speed = 0.0
+            elif status == "finished":
+                total_bytes = d["total_bytes"]
+            #print(d)
 
         ret = youtube_dl.YoutubeDL(params={
             "quiet": True,
-            "progress_hooks": [lambda d: phook_rs(d)],
+            "progress_hooks": [lambda d: phook(d)],
         }).download(['url])
     });
+}
+
+impl YtStatus {
+    pub fn progress(&self) -> YtStatusProgress {
+        match &*self.status {
+            "preparing" => YtStatusProgress::Preparing,
+            "downloading" => YtStatusProgress::Downloading(
+                self.downloaded_bytes.unwrap() as f64 / self.total_bytes.unwrap(),
+            ),
+            "finished" => YtStatusProgress::Finished,
+            _ => YtStatusProgress::Error,
+        }
+    }
+}
+
+impl From<Arc<inline_python::Context>> for YtStatus {
+    fn from(ctx: Arc<inline_python::Context>) -> Self {
+        let status = ctx.get("status");
+        let filename = ctx.get("filename");
+        let elapsed = ctx.get("elapsed");
+        let (
+            downloaded_bytes,
+            fragment_index,
+            fragment_count,
+            tmpfilename,
+            total_bytes,
+            eta,
+            speed,
+        ) = if status == "downloading" {
+            (
+                Some(ctx.get::<usize>("downloaded_bytes")),
+                Some(ctx.get::<usize>("fragment_index")),
+                Some(ctx.get::<usize>("fragment_count")),
+                Some(ctx.get::<String>("tmpfilename")),
+                Some(ctx.get::<f64>("total_bytes")),
+                Some(ctx.get::<usize>("eta")),
+                Some(ctx.get::<f64>("speed")),
+            )
+        } else if status == "finished" {
+            (
+                None,
+                None,
+                None,
+                None,
+                Some(ctx.get::<usize>("total_bytes") as f64),
+                None,
+                None,
+            )
+        } else {
+            (None, None, None, None, None, None, None)
+        };
+        Self {
+            status,
+            downloaded_bytes,
+            fragment_index,
+            fragment_count,
+            filename,
+            tmpfilename,
+            elapsed,
+            total_bytes,
+            eta,
+            speed,
+        }
+    }
 }
