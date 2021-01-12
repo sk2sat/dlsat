@@ -1,4 +1,6 @@
+use actix::prelude::*;
 use futures::executor::ThreadPool;
+use futures::stream::once;
 use inline_python::python;
 use std::sync::Arc;
 use url::{Host::Domain, Url};
@@ -11,12 +13,16 @@ pub enum Host {
     NicoLive,
 }
 
-pub struct Target {
+pub struct Downloader {
     pub s: String,
     host: Host,
     info: Option<YoutubeDlOutput>,
     py_ctx: Option<Arc<inline_python::Context>>,
 }
+
+#[derive(Message)]
+#[rtype(result = "Result<YtStatus, ()>")]
+pub struct Status;
 
 impl Host {
     pub fn new(s: &str) -> Option<Self> {
@@ -39,7 +45,33 @@ impl Host {
     }
 }
 
-impl Target {
+impl Actor for Downloader {
+    type Context = actix::Context<Self>;
+
+    fn started(&mut self, ctx: &mut Self::Context) {
+        log::info!("downloader started: {}", self.s);
+
+        self.download();
+    }
+
+    fn stopping(&mut self, ctx: &mut Self::Context) -> actix::Running {
+        actix::Running::Stop
+    }
+
+    fn stopped(&mut self, ctx: &mut Self::Context) {
+        log::info!("downloader stopped: {}", self.s);
+    }
+}
+
+impl Handler<Status> for Downloader {
+    type Result = Result<YtStatus, ()>; // <- Message response type
+
+    fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
+        Ok(self.get_status())
+    }
+}
+
+impl Downloader {
     pub fn new(s: &str) -> Option<Self> {
         let host = Host::new(s)?;
         return Some(Self {
@@ -50,7 +82,7 @@ impl Target {
         });
     }
 
-    pub async fn get_info(&mut self) {
+    pub fn get_info(&mut self) {
         match self.host {
             Host::YouTube => {
                 let output = YoutubeDl::new(&self.s).socket_timeout("15").run();
@@ -64,8 +96,8 @@ impl Target {
         }
     }
 
-    pub async fn download(&mut self) {
-        self.get_info().await;
+    pub fn download(&mut self) {
+        self.get_info();
         if let Some(info) = &self.info {
             match info {
                 YoutubeDlOutput::SingleVideo(sv) => {
@@ -82,14 +114,14 @@ impl Target {
                             //ctx.run(python!({ print(status) }));
                             let status: YtStatus = ctx.clone().into();
                             //let status = s.get_status();
-                            log::info!(
-                                "{:?}, {:?}/{:?} tmp: {:?}, out={}",
-                                status.progress(),
-                                status.fragment_index,
-                                status.fragment_count,
-                                status.tmpfilename,
-                                status.filename
-                            );
+                            //log::info!(
+                            //    "{:?}, {:?}/{:?} tmp: {:?}, out={}",
+                            //    status.progress(),
+                            //    status.fragment_index,
+                            //    status.fragment_count,
+                            //    status.tmpfilename,
+                            //    status.filename
+                            //);
                             std::thread::sleep(std::time::Duration::from_millis(50));
                         }
                     });
