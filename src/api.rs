@@ -1,10 +1,10 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
-use actix_web::{get, http, middleware, web, App, HttpResponse, HttpServer, Responder, Result};
+use actix::{Actor, Arbiter};
+use actix_web::{http, web, HttpResponse, Result};
 use serde::Deserialize;
-use youtube_dl::{YoutubeDl, YoutubeDlOutput};
 
-use crate::download::Host;
+use crate::download::{Downloader, Status, YtStatus, YtStatusProgress};
 
 #[derive(Debug, Deserialize)]
 pub struct Params {
@@ -12,9 +12,18 @@ pub struct Params {
 }
 
 pub async fn index() -> Result<HttpResponse> {
-    Ok(HttpResponse::Ok()
-        .content_type("text/html; charset=utf-8")
-        .body(include_str!("../static/index.html")))
+    Ok(redirect_to("/"))
+}
+
+pub async fn status(data: web::Data<Arc<Mutex<crate::Data>>>) -> Result<HttpResponse> {
+    let status = &data.lock().unwrap().status;
+    Ok(HttpResponse::Ok().json(status))
+}
+
+async fn kusodeka() {
+    log::info!("kusodeka start");
+    std::thread::sleep(std::time::Duration::from_secs(10));
+    log::info!("kusodeka end");
 }
 
 pub async fn download(
@@ -23,8 +32,26 @@ pub async fn download(
 ) -> Result<HttpResponse> {
     log::info!("param: {}", &params.param);
 
-    let host = Host::new(&params.param);
-    log::info!("host: {:?}", host);
+    let downloder = Downloader::new(&params.param).unwrap();
+
+    let addr = Downloader::start_in_arbiter(&Arbiter::new(), |_| downloder);
+
+    let mut data0_lock = data.lock().unwrap();
+
+    let pool = &data0_lock.tpool;
+
+    pool.spawn_ok(async move {
+        loop {
+            let res = addr.send(Status {}).await.unwrap();
+            if let Ok(res) = res {
+                log::info!("{:?}", res);
+                match res.progress() {
+                    YtStatusProgress::Finished => break,
+                    _ => continue,
+                }
+            }
+        }
+    });
 
     Ok(redirect_to("/"))
 }

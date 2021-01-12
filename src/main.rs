@@ -1,14 +1,16 @@
+#![warn(clippy::pedantic)]
+
+use std::collections::VecDeque;
 use std::env;
 use std::sync::{Arc, Mutex};
 
-use futures::executor::{block_on, ThreadPool};
+use futures::executor::ThreadPool;
 
 use env_logger;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-use actix_web::http::StatusCode;
-use actix_web::{get, middleware, web, App, HttpResponse, HttpServer, Responder, Result};
+use actix_web::{middleware, web, App, HttpServer};
 
 mod api;
 mod config;
@@ -16,11 +18,17 @@ mod download;
 
 pub struct Data {
     tpool: ThreadPool,
+    status: Status,
+}
+
+#[derive(Serialize)]
+pub struct Status {
+    hoge: u32,
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    env::set_var("RUST_LOG", "info");
+    env::set_var("RUST_LOG", "dlsat=info");
     env_logger::init();
     log::info!("starting...");
 
@@ -31,6 +39,7 @@ async fn main() -> std::io::Result<()> {
 
     let data = Data {
         tpool: ThreadPool::new()?,
+        status: Status { hoge: 0 },
     };
     let data = Arc::new(Mutex::new(data));
 
@@ -48,9 +57,18 @@ async fn main() -> std::io::Result<()> {
 
 fn app_config(cfg: &mut web::ServiceConfig) {
     cfg.service(
+        web::scope("/api")
+            .route("/status", web::get().to(api::status))
+            .route("/download", web::post().to(api::download)),
+    )
+    .service(
         web::scope("")
-            .service(web::resource("/").route(web::get().to(api::index)))
-            .service(web::resource("/download").route(web::post().to(api::download)))
+            .service(
+                actix_files::Files::new("/", "ui/build")
+                    .index_file("index.html")
+                    .show_files_listing()
+                    .use_last_modified(true),
+            )
             .default_service(web::route().to(api::index)),
     );
     log::info!("app config done");
