@@ -1,6 +1,6 @@
 use futures::executor::ThreadPool;
 use inline_python::python;
-use std::sync::{Arc, Mutex, MutexGuard, RwLock};
+use std::sync::Arc;
 use url::{Host::Domain, Url};
 use youtube_dl::{YoutubeDl, YoutubeDlOutput};
 
@@ -12,10 +12,9 @@ pub enum Host {
 }
 
 pub struct Target {
-    s: String,
+    pub s: String,
     host: Host,
     info: Option<YoutubeDlOutput>,
-    progress: Arc<RwLock<String>>,
     py_ctx: Option<Arc<inline_python::Context>>,
 }
 
@@ -47,8 +46,7 @@ impl Target {
             s: s.to_string(),
             host,
             info: None,
-            progress: Arc::new(RwLock::new("".to_string())),
-            py_ctx: None,
+            py_ctx: Some(Arc::new(inline_python::Context::new())),
         });
     }
 
@@ -73,16 +71,17 @@ impl Target {
                 YoutubeDlOutput::SingleVideo(sv) => {
                     log::info!("downloading single video: {}", sv.title);
                     let url = &self.s;
-                    self.py_ctx = Some(Arc::new(inline_python::Context::new()));
+                    //self.py_ctx = Some(Arc::new(inline_python::Context::new()));
                     let py_ctx = self.py_ctx.as_ref().unwrap();
 
                     let ctx = py_ctx.clone();
                     let pool = ThreadPool::new().unwrap();
-                    let progress = self.progress.read().unwrap().clone();
+
                     pool.spawn_ok(async move {
                         loop {
                             //ctx.run(python!({ print(status) }));
                             let status: YtStatus = ctx.clone().into();
+                            //let status = s.get_status();
                             log::info!(
                                 "{:?}, {:?}/{:?} tmp: {:?}, out={}",
                                 status.progress(),
@@ -97,24 +96,25 @@ impl Target {
 
                     do_youtube_dl(url, py_ctx.clone());
                 }
-                YoutubeDlOutput::Playlist(pl) => {
+                YoutubeDlOutput::Playlist(_pl) => {
                     log::info!("downloading playlist...");
                 }
             }
         }
     }
-}
 
-use inline_python::pyo3::{
-    prelude::*, pyclass_slots::PyClassDictSlot, types::IntoPyDict, types::PyDict, wrap_pyfunction,
-    FromPyObject, Py, PyClass, PyObject, PyResult, Python,
-};
+    pub fn get_status(&self) -> YtStatus {
+        let py_ctx = self.py_ctx.as_ref().unwrap();
+        let ctx = py_ctx.clone();
+        ctx.clone().into()
+    }
+}
 
 // https://github.com/ytdl-org/youtube-dl/blob/9c1e164e0cd77331ea4f0b474b32fd06f84bad71/youtube_dl/YoutubeDL.py#L234
 //use pyo3::prelude::*;
 //#[pyclass(dict)]
 #[derive(Debug)]
-struct YtStatus {
+pub struct YtStatus {
     status: String,
     pub downloaded_bytes: Option<usize>,
     pub fragment_index: Option<usize>,
@@ -128,7 +128,7 @@ struct YtStatus {
 }
 
 #[derive(Debug)]
-enum YtStatusProgress {
+pub enum YtStatusProgress {
     Preparing,
     Downloading(f64),
     Finished,

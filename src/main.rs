@@ -1,3 +1,6 @@
+#![warn(clippy::pedantic)]
+
+use std::collections::VecDeque;
 use std::env;
 use std::sync::{Arc, Mutex};
 
@@ -15,8 +18,11 @@ mod download;
 
 pub struct Data {
     tpool: ThreadPool,
+    target: VecDeque<download::Target>,
     status: Status,
 }
+
+unsafe impl Send for Data {}
 
 #[derive(Serialize)]
 pub struct Status {
@@ -36,6 +42,7 @@ async fn main() -> std::io::Result<()> {
 
     let data = Data {
         tpool: ThreadPool::new()?,
+        target: VecDeque::new(),
         status: Status { hoge: 0 },
     };
     let data = Arc::new(Mutex::new(data));
