@@ -1,14 +1,20 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use actix::{Actor, Arbiter};
+use actix::{Actor, Arbiter, SyncArbiter};
 use actix_web::{http, web, HttpResponse, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-use crate::download::{Downloader, Status, YtStatus, YtStatusProgress};
+use crate::download;
+use crate::download::{DownloadStart, Downloader, Target, YtStatus, YtStatusProgress};
 
 #[derive(Debug, Deserialize)]
 pub struct Params {
     param: String,
+}
+
+#[derive(Serialize)]
+pub struct Status {
+    hoge: u32,
 }
 
 pub async fn index() -> Result<HttpResponse> {
@@ -16,8 +22,38 @@ pub async fn index() -> Result<HttpResponse> {
 }
 
 pub async fn status(data: web::Data<Arc<Mutex<crate::Data>>>) -> Result<HttpResponse> {
-    let status = &data.lock().unwrap().status;
-    Ok(HttpResponse::Ok().json(status))
+    let data = &data.lock().unwrap();
+    let addr = &data.addr;
+
+    //log::debug!("status");
+
+    if addr.is_none() {
+        log::debug!("addr is none");
+        return Ok(HttpResponse::Ok().json(Status { hoge: 0 }));
+    }
+    let addr = addr.as_ref().unwrap();
+
+    if addr.connected() {
+        log::debug!("connected");
+        let res = addr.send(download::Status {}).await;
+        if let Ok(res) = res {
+            log::debug!("res");
+            let res: Result<YtStatus, _> = res;
+            if let Ok(res) = res {
+                log::info!("{:?}", res);
+                match res.progress() {
+                    YtStatusProgress::Finished => {}
+                    _ => {}
+                }
+            }
+        } else {
+            log::info!("send failed");
+        }
+    } else {
+        log::info!("actor is dead!");
+    }
+
+    Ok(HttpResponse::Ok().json(Status { hoge: 0 }))
 }
 
 async fn kusodeka() {
@@ -32,26 +68,13 @@ pub async fn download(
 ) -> Result<HttpResponse> {
     log::info!("param: {}", &params.param);
 
-    let downloder = Downloader::new(&params.param).unwrap();
+    //let addr = Downloader::start_in_arbiter(&Arbiter::new(), |_| downloader);
+    let addr = SyncArbiter::start(3, move || Downloader::new(&params.param));
+    addr.do_send(DownloadStart);
 
-    let addr = Downloader::start_in_arbiter(&Arbiter::new(), |_| downloder);
-
-    let mut data0_lock = data.lock().unwrap();
-
-    let pool = &data0_lock.tpool;
-
-    pool.spawn_ok(async move {
-        loop {
-            let res = addr.send(Status {}).await.unwrap();
-            if let Ok(res) = res {
-                log::info!("{:?}", res);
-                match res.progress() {
-                    YtStatusProgress::Finished => break,
-                    _ => continue,
-                }
-            }
-        }
-    });
+    // move addr to Data
+    let mut data = data.lock().unwrap();
+    data.addr = Some(addr);
 
     Ok(redirect_to("/"))
 }

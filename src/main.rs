@@ -18,12 +18,7 @@ mod download;
 
 pub struct Data {
     tpool: ThreadPool,
-    status: Status,
-}
-
-#[derive(Serialize)]
-pub struct Status {
-    hoge: u32,
+    addr: Option<actix::Addr<download::Downloader>>,
 }
 
 #[actix_web::main]
@@ -39,7 +34,7 @@ async fn main() -> std::io::Result<()> {
 
     let data = Data {
         tpool: ThreadPool::new()?,
-        status: Status { hoge: 0 },
+        addr: None,
     };
     let data = Arc::new(Mutex::new(data));
 

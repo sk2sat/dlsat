@@ -2,7 +2,8 @@ use actix::prelude::*;
 use futures::executor::ThreadPool;
 use futures::stream::once;
 use inline_python::python;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
+use std::thread;
 use url::{Host::Domain, Url};
 use youtube_dl::{YoutubeDl, YoutubeDlOutput};
 
@@ -13,11 +14,20 @@ pub enum Host {
     NicoLive,
 }
 
-pub struct Downloader {
+pub struct Target {
     pub s: String,
     host: Host,
     info: Option<YoutubeDlOutput>,
-    py_ctx: Option<Arc<inline_python::Context>>,
+}
+
+#[derive(Message)]
+#[rtype(result = "Result<(), ()>")]
+pub struct DownloadStart;
+
+pub struct Downloader {
+    pub target: Option<Target>,
+    py_ctx: Arc<RwLock<Option<inline_python::Context>>>,
+    data: usize,
 }
 
 #[derive(Message)]
@@ -45,13 +55,63 @@ impl Host {
     }
 }
 
+impl Downloader {
+    pub fn new(s: &str) -> Self {
+        Self {
+            target: Target::new(s),
+            py_ctx: Arc::new(RwLock::new(None)),
+            data: 0,
+        }
+    }
+
+    pub fn download(&mut self) {
+        self.data += 1;
+        let mut target = self.target.as_mut().unwrap();
+        target.get_info();
+
+        if let Some(info) = &target.info {
+            match info {
+                YoutubeDlOutput::SingleVideo(sv) => {
+                    log::info!("downloading single video: {}", sv.title);
+                    let url = &target.s;
+                    let py_ctx: inline_python::Context = python! {
+                        status = "preparing"
+                        downloaded_bytes = 0
+                        fragment_index = 0
+                        fragment_count = 0
+                        filename = ""
+                        tmpfilename = ""
+                        elapsed = 0.0
+                        total_bytes = 0.0
+                        eta = 0
+                        speed = 0.0
+                    };
+                    self.py_ctx = Arc::new(RwLock::new(Some(py_ctx)));
+
+                    let py_ctx = self.py_ctx.clone();
+
+                    let ctx: &Option<inline_python::Context> = &*py_ctx.read().unwrap();
+                    if ctx.is_none() {
+                        log::debug!("????????");
+                    }
+                    let ctx: &inline_python::Context = ctx.as_ref().unwrap();
+                    let c = do_youtube_dl(url, ctx);
+                }
+                YoutubeDlOutput::Playlist(_pl) => {
+                    log::info!("downloading playlist...");
+                }
+            }
+        }
+    }
+}
+
 impl Actor for Downloader {
-    type Context = actix::Context<Self>;
+    type Context = actix::SyncContext<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        log::info!("downloader started: {}", self.s);
+        log::info!("downloader started");
 
-        self.download();
+        //self.target.download();
     }
 
     fn stopping(&mut self, ctx: &mut Self::Context) -> actix::Running {
@@ -59,26 +119,46 @@ impl Actor for Downloader {
     }
 
     fn stopped(&mut self, ctx: &mut Self::Context) {
-        log::info!("downloader stopped: {}", self.s);
+        log::info!("downloader stopped");
+    }
+}
+
+impl Handler<DownloadStart> for Downloader {
+    type Result = Result<(), ()>;
+
+    fn handle(&mut self, msg: DownloadStart, ctx: &mut Self::Context) -> Self::Result {
+        log::info!("download handler");
+        self.download();
+        log::info!("download finished!!");
+
+        Ok(())
     }
 }
 
 impl Handler<Status> for Downloader {
     type Result = Result<YtStatus, ()>; // <- Message response type
 
-    fn handle(&mut self, msg: Status, ctx: &mut Context<Self>) -> Self::Result {
-        Ok(self.get_status())
+    fn handle(&mut self, msg: Status, ctx: &mut Self::Context) -> Self::Result {
+        log::debug!("data: {}", self.data);
+        let py_ctx = self.py_ctx.clone();
+        let ctx: &Option<inline_python::Context> = &*py_ctx.read().unwrap();
+        if ctx.is_none() {
+            log::debug!("py context is none!");
+            return Err(());
+        }
+        let ctx = ctx.as_ref().unwrap();
+        //let ctx = &py_ctx.as_ref().as_ref().unwrap();
+        Ok(ctx.into())
     }
 }
 
-impl Downloader {
+impl Target {
     pub fn new(s: &str) -> Option<Self> {
         let host = Host::new(s)?;
         return Some(Self {
             s: s.to_string(),
             host,
             info: None,
-            py_ctx: Some(Arc::new(inline_python::Context::new())),
         });
     }
 
@@ -97,49 +177,69 @@ impl Downloader {
     }
 
     pub fn download(&mut self) {
-        self.get_info();
-        if let Some(info) = &self.info {
-            match info {
-                YoutubeDlOutput::SingleVideo(sv) => {
-                    log::info!("downloading single video: {}", sv.title);
-                    let url = &self.s;
-                    //self.py_ctx = Some(Arc::new(inline_python::Context::new()));
-                    let py_ctx = self.py_ctx.as_ref().unwrap();
+        //self.get_info();
+        //if let Some(info) = &self.info {
+        //    match info {
+        //        YoutubeDlOutput::SingleVideo(sv) => {
+        //            log::info!("downloading single video: {}", sv.title);
+        //            let url = &self.s;
+        //            let py_ctx: inline_python::Context = python! {
+        //                status = "preparing"
+        //                downloaded_bytes = 0
+        //                fragment_index = 0
+        //                fragment_count = 0
+        //                filename = ""
+        //                tmpfilename = ""
+        //                elapsed = 0.0
+        //                total_bytes = 0.0
+        //                eta = 0
+        //                speed = 0.0
+        //            };
+        //            let py_ctx = Arc::new(Some(py_ctx));
+        //            self.py_ctx = py_ctx;
 
-                    let ctx = py_ctx.clone();
-                    let pool = ThreadPool::new().unwrap();
+        //            let py_ctx = self.py_ctx.clone();
+        //            let pool = ThreadPool::new().unwrap();
 
-                    pool.spawn_ok(async move {
-                        loop {
-                            //ctx.run(python!({ print(status) }));
-                            let status: YtStatus = ctx.clone().into();
-                            //let status = s.get_status();
-                            //log::info!(
-                            //    "{:?}, {:?}/{:?} tmp: {:?}, out={}",
-                            //    status.progress(),
-                            //    status.fragment_index,
-                            //    status.fragment_count,
-                            //    status.tmpfilename,
-                            //    status.filename
-                            //);
-                            std::thread::sleep(std::time::Duration::from_millis(50));
-                        }
-                    });
+        //            //pool.spawn_ok(async move {
+        //            //    loop {
+        //            //        //ctx.run(python!({ print(status) }));
+        //            //        let status: YtStatus = ctx.clone().into();
+        //            //        //let status = s.get_status();
+        //            //        //log::info!(
+        //            //        //    "{:?}, {:?}/{:?} tmp: {:?}, out={}",
+        //            //        //    status.progress(),
+        //            //        //    status.fragment_index,
+        //            //        //    status.fragment_count,
+        //            //        //    status.tmpfilename,
+        //            //        //    status.filename
+        //            //        //);
+        //            //        std::thread::sleep(std::time::Duration::from_millis(50));
+        //            //    }
+        //            //});
 
-                    do_youtube_dl(url, py_ctx.clone());
-                }
-                YoutubeDlOutput::Playlist(_pl) => {
-                    log::info!("downloading playlist...");
-                }
-            }
-        }
+        //            let ctx: &Option<inline_python::Context> = &*py_ctx;
+        //            let ctx: &inline_python::Context = ctx.as_ref().unwrap();
+        //            let c = do_youtube_dl(url, ctx);
+        //        }
+        //        YoutubeDlOutput::Playlist(_pl) => {
+        //            log::info!("downloading playlist...");
+        //        }
+        //    }
+        //}
     }
 
-    pub fn get_status(&self) -> YtStatus {
-        let py_ctx = self.py_ctx.as_ref().unwrap();
-        let ctx = py_ctx.clone();
-        ctx.clone().into()
-    }
+    //pub fn get_status(&self) -> Option<YtStatus> {
+    //    let py_ctx = self.py_ctx.clone();
+    //    let ctx = &*py_ctx;
+    //    if ctx.is_none() {
+    //        log::info!("py context is none!");
+    //        return None;
+    //    }
+    //    let ctx = ctx.as_ref().unwrap();
+    //    //let ctx = &py_ctx.as_ref().as_ref().unwrap();
+    //    Some(ctx.into())
+    //}
 }
 
 // https://github.com/ytdl-org/youtube-dl/blob/9c1e164e0cd77331ea4f0b474b32fd06f84bad71/youtube_dl/YoutubeDL.py#L234
@@ -167,19 +267,7 @@ pub enum YtStatusProgress {
     Error,
 }
 
-fn do_youtube_dl(url: &str, ctx: Arc<inline_python::Context>) {
-    ctx.run(python! {
-        status = "preparing"
-        downloaded_bytes = 0
-        fragment_index = 0
-        fragment_count = 0
-        filename = ""
-        tmpfilename = ""
-        elapsed = 0.0
-        total_bytes = 0.0
-        eta = 0
-        speed = 0.0
-    });
+fn do_youtube_dl(url: &str, ctx: &inline_python::Context) {
     //let ctx = Arc::new(ctx);
 
     ctx.run(python! {
@@ -234,8 +322,8 @@ impl YtStatus {
     }
 }
 
-impl From<Arc<inline_python::Context>> for YtStatus {
-    fn from(ctx: Arc<inline_python::Context>) -> Self {
+impl From<&inline_python::Context> for YtStatus {
+    fn from(ctx: &inline_python::Context) -> Self {
         let status = ctx.get("status");
         let filename = ctx.get("filename");
         let elapsed = ctx.get("elapsed");
