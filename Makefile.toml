@@ -1,6 +1,11 @@
 [tasks.build]
+dependencies = ["build-srv", "build-front"]
+
+[tasks.build-srv]
 command = "cargo"
 args = ["build"]
+
+[tasks.build-front]
 dependencies = [
 	{ name = "build", path = "ui" },
 ]
@@ -9,3 +14,9 @@ dependencies = [
 command = "cargo"
 args = ["run"]
 dependencies = ["build"]
+
+[tasks.ci]
+dependencies = [
+	{ name = "install", path = "ui" },
+	"build"
+]
