@@ -1,3 +1,7 @@
 [tasks.build]
 command = "yarn"
 args = ["build"]
+
+[tasks.install]
+command = "yarn"
+args = ["install"]

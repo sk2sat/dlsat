@@ -1,0 +1,22 @@
+name: build
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+      - uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: cargo-make
+      - uses: actions/setup-node@v2
+      - uses: actions-rs/cargo@v1
+        with:
+          command: make
+          args: ci
