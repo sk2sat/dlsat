@@ -18,4 +18,5 @@ jobs:
       - uses: actions/setup-node@v2
       - uses: actions-rs/cargo@v1
         with:
-          command: make ci
+          command: make
+          args: ci
