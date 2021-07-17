@@ -13,3 +13,11 @@ run: build
 	cargo run
 
 ci: build install-front
+
+clean: clean-srv clean-front
+
+clean-srv:
+	cargo clean
+
+clean-front:
+	make -C ui clean
