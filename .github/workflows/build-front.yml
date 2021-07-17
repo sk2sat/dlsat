@@ -3,7 +3,7 @@ name: build front-end
 on:
   push:
     paths:
-      - 'ui/***'
+      - 'ui/**'
       - '.github/workflows/build-front.yml'
 
 jobs:
