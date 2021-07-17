@@ -9,6 +9,7 @@ use actix_web::{middleware, web, App, HttpServer};
 
 mod api;
 mod config;
+mod download;
 
 pub struct Data {}
 
@@ -52,6 +53,7 @@ async fn main() -> std::io::Result<()> {
     // cmdline
     if let Some(url) = matches.value_of("URL") {
         log::info!("URL: {}", url);
+        download::do_download(url);
 
         return Ok(());
     }

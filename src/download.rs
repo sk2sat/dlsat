@@ -12,7 +12,11 @@ pub enum Host {
 pub struct Target {
     pub s: String,
     host: Host,
-    info: Option<YoutubeDlOutput>,
+    info: Option<TargetInfo>,
+}
+
+pub enum TargetInfo {
+    YouTube(YoutubeDlOutput),
 }
 
 pub struct Downloader {
@@ -21,6 +25,13 @@ pub struct Downloader {
 }
 
 pub struct Status;
+
+pub fn do_download(url: &str) -> Result<String, ()> {
+    let mut target = Target::new(url).unwrap();
+    target.get_info();
+
+    Ok("".to_string())
+}
 
 impl Host {
     pub fn new(s: &str) -> Option<Self> {
@@ -58,13 +69,15 @@ impl Downloader {
 
         if let Some(info) = &target.info {
             match info {
-                YoutubeDlOutput::SingleVideo(sv) => {
-                    log::info!("downloading single video: {}", sv.title);
-                    let url = &target.s;
-                }
-                YoutubeDlOutput::Playlist(_pl) => {
-                    log::info!("downloading playlist...");
-                }
+                TargetInfo::YouTube(yinfo) => match yinfo {
+                    YoutubeDlOutput::SingleVideo(sv) => {
+                        log::info!("downloading single video: {}", sv.title);
+                        let url = &target.s;
+                    }
+                    YoutubeDlOutput::Playlist(_pl) => {
+                        log::info!("downloading playlist...");
+                    }
+                },
             }
         }
     }
@@ -106,7 +119,7 @@ impl Target {
                     return;
                 }
                 let o = output.unwrap();
-                self.info = Some(o);
+                self.info = Some(TargetInfo::YouTube(o));
             }
             _ => {}
         }
