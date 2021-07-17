@@ -1,0 +1,21 @@
+name: build front-end
+
+on:
+  push:
+    paths:
+      - 'ui/**'
+      - '.github/workflows/build-front.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Dependencies
+        uses: actions/setup-node@v2
+
+      - uses: actions/checkout@v2
+
+      - name: Build front-end
+        run: |
+          make build-front

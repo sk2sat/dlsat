@@ -1,0 +1,28 @@
+name: check back-end
+
+on:
+  push:
+    paths:
+      - 'rust-toolchain'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'src/**'
+      - '.github/workflows/check-back.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: clippy
+          override: true
+
+      - name: clippy check
+        uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features
