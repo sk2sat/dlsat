@@ -1,0 +1,31 @@
+name: build front-end
+
+on:
+  push:
+    paths:
+      - 'ui/***'
+      - '.github/workflows/build-front.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - name: Install cargo-make
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: cargo-make
+
+      - name: Install Dependencies
+        uses: actions/setup-node@v2
+
+      - uses: actions/checkout@v2
+      - uses: actions-rs/cargo@v1
+        with:
+          command: make
+          args: build-front
