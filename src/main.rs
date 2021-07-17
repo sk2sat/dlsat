@@ -14,8 +14,48 @@ pub struct Data {}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    env::set_var("RUST_LOG", "dlsat=info");
+    use clap::Arg;
+    let matches = clap::App::new(env!("CARGO_PKG_NAME"))
+        .version(env!("CARGO_PKG_VERSION"))
+        .author(env!("CARGO_PKG_AUTHORS"))
+        .about(env!("CARGO_PKG_DESCRIPTION"))
+        .arg(
+            Arg::with_name("config")
+                .short("c")
+                .long("config")
+                .value_name("FILE")
+                .default_value("./config.toml")
+                .help("set config file")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("debug")
+                .long("debug")
+                .short("d")
+                .help("print debug information verbosely"),
+        )
+        .arg(Arg::with_name("URL").help("URL").required(false).index(1))
+        .get_matches();
+
+    let debug_level = if matches.is_present("debug") {
+        "debug"
+    } else {
+        "info"
+    };
+    std::env::set_var(
+        "RUST_LOG",
+        format!("{}={}", env!("CARGO_PKG_NAME"), debug_level),
+    );
     env_logger::init();
+    log::debug!("debug mode");
+
+    // cmdline
+    if let Some(url) = matches.value_of("URL") {
+        log::info!("URL: {}", url);
+
+        return Ok(());
+    }
+
     log::info!("starting...");
 
     let cfg = config::load("config.toml").unwrap();
