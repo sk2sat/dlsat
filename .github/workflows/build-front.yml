@@ -11,21 +11,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Install Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-      - name: Install cargo-make
-        uses: actions-rs/cargo@v1
-        with:
-          command: install
-          args: cargo-make
-
       - name: Install Dependencies
         uses: actions/setup-node@v2
 
       - uses: actions/checkout@v2
-      - uses: actions-rs/cargo@v1
-        with:
-          command: make
-          args: build-front
+
+      - name: Build front-end
+        run: |
+          make build-front
