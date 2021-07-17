@@ -1,4 +1,4 @@
-name: build back-end
+name: check back-end
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'src/**'
+      - '.github/workflows/check-back.yml'
 
 jobs:
   build:
@@ -17,6 +18,10 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
-      - uses: actions-rs/cargo@v1
+          components: clippy
+
+      - name: clippy check
+        uses: actions-rs/clippy-check@v1
         with:
-          command: build
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features
